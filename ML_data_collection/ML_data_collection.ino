@@ -3,9 +3,9 @@
 
 LSM6DS3 imu(I2C_MODE, 0x6A);
 
-const char* LABEL = "walking";   
+const char* LABEL = "fidgeting";   
 const unsigned long SAMPLE_PERIOD_MS = 20;      // 50 Hz
-const unsigned long RECORD_DURATION_MS = 180000; // 3 minutes
+const unsigned long RECORD_DURATION_MS = 60000; // 1 minute
 
 unsigned long lastSampleTime = 0;
 unsigned long startTime = 0;
