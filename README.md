@@ -1,2 +1,2 @@
 # GaitAnalysis
-senior design projec
+senior design project
