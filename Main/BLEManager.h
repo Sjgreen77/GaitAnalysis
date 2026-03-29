@@ -1,0 +1,74 @@
+#ifndef BLE_MANAGER_H
+#define BLE_MANAGER_H
+
+#include "Config.h"
+#include <bluefruit.h>
+
+class BLEManager {
+private:
+    BLEService gaitService;
+    BLECharacteristic gaitChar;
+    bool syncRequested = false;
+
+public:
+    BLEManager() : gaitService(SERVICE_UUID), gaitChar(CHAR_UUID) {}
+
+    void begin() {
+        Bluefruit.begin(1, 1); // 1 peripheral, 1 central
+        Bluefruit.setName("SensePlus");
+
+        gaitService.begin();
+
+        // Allow MATLAB to Read, Notify, and Write commands to this characteristic
+        gaitChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE);
+        gaitChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+        gaitChar.setWriteCallback(write_callback);
+        gaitChar.setMaxLen(20);
+        gaitChar.begin();
+
+        startAdvertising();
+    }
+
+    void sendChunk(const char* data, int len) {
+        if (Bluefruit.connected()) {
+            gaitChar.notify(data, len);
+        }
+    }
+
+    bool isSyncRequested() {
+        if (syncRequested) {
+            syncRequested = false;
+            return true;
+        }
+        return false;
+    }
+
+    // Static callback wrapper required by Bluefruit library
+    static void write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
+        String command = "";
+        for (int i = 0; i < len; i++) command += (char)data[i];
+        
+        if (command.indexOf("SYNC") >= 0) {
+            // Can't access non-static members directly here, so we set a flag 
+            // handled externally, or pass instance pointers. 
+            // For simplicity in this architecture, we assume a global flag if needed, 
+            // but we'll manage it via a slight hack for the sake of the wrapper:
+            triggerSync(); 
+        }
+    }
+
+private:
+    void startAdvertising() {
+        Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+        Bluefruit.Advertising.addService(gaitService);
+        Bluefruit.ScanResponse.addName();
+        Bluefruit.Advertising.restartOnDisconnect(true);
+        Bluefruit.Advertising.start(0);
+    }
+};
+
+// Global flag for the static BLE callback
+volatile bool globalSyncFlag = false;
+void triggerSync() { globalSyncFlag = true; }
+
+#endif
