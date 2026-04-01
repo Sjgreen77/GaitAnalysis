@@ -3,7 +3,7 @@
 // ---- Pin Definitions ----
 #define VBAT_ENABLE       14
 #define PIN_VBAT          35
-#define PIN_ADC_IN        A0   // pin 0
+#define PIN_ADC_IN        A1   // pin 0
 
 // ---- ADC / Battery Constants ----
 #define ADC_RESOLUTION_BITS  12
@@ -12,7 +12,7 @@
 #define R_UPPER              1000.0f   // 1M ohm  (VBAT divider)
 #define R_LOWER              510.0f    // 510k ohm (VBAT divider)
 #define VBAT_SCALE           (VREF / ADC_COUNTS * (R_UPPER + R_LOWER) / R_LOWER)
-#define ADC_SCALE            (VREF / ADC_COUNTS)  // A0 is a direct read, no divider
+#define ADC_SCALE            (VREF / ADC_COUNTS)  // A1 is a direct read, no divider
 
 #define VBAT_MIN             3.0f
 #define VBAT_MAX             4.2f
@@ -88,7 +88,7 @@ int voltageToPercent(float voltage) {
 }
 
 // ---- ADC read ----
-float readA0Voltage() {
+float readA1Voltage() {
     const int NUM_SAMPLES = 16;
     uint32_t sum = 0;
     for (int i = 0; i < NUM_SAMPLES; i++) {
@@ -115,12 +115,12 @@ void loop() {
 
         float vbat    = readBatteryVoltage();
         int   pct     = voltageToPercent(vbat);
-        float adcVolt = readA0Voltage();
+        float adcVolt = readA1Voltage();
 
-        // CSV format: "VBAT:3.901,PCT:82,A0:1.234"
+        // CSV format: "VBAT:3.901,PCT:82,A1:1.234"
         // MATLAB can parse this with strsplit on ',' then ':' 
         char buf[64];
-        snprintf(buf, sizeof(buf), "VBAT:%.3f,PCT:%d,A0:%.3f",
+        snprintf(buf, sizeof(buf), "VBAT:%.3f,PCT:%d,A1:%.3f",
                  vbat, pct, adcVolt);
 
         sendBLE(String(buf));
@@ -135,8 +135,3 @@ void connect_callback(uint16_t conn_handle) {
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
     digitalWrite(LED_BLUE, HIGH);  // off
 }
-```
-
-**What MATLAB will receive** over the characteristic, once per second:
-```
-VBAT:3.901,PCT:82,A0:1.234
