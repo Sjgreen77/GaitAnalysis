@@ -4,6 +4,10 @@
 #include "Config.h"
 #include <bluefruit.h>
 
+// Forward declarations for the static BLE callback
+volatile bool globalSyncFlag = false;
+void triggerSync() { globalSyncFlag = true; }
+
 class BLEManager {
 private:
     BLEService gaitService;
@@ -66,9 +70,5 @@ private:
         Bluefruit.Advertising.start(0);
     }
 };
-
-// Global flag for the static BLE callback
-volatile bool globalSyncFlag = false;
-void triggerSync() { globalSyncFlag = true; }
 
 #endif
