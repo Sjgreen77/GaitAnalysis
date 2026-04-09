@@ -27,7 +27,7 @@ public:
         gaitChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE);
         gaitChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
         gaitChar.setWriteCallback(write_callback);
-        gaitChar.setMaxLen(20);
+        gaitChar.setMaxLen(64);
         gaitChar.begin();
 
         startAdvertising();
@@ -35,6 +35,13 @@ public:
 
     void sendChunk(const char* data, int len) {
         if (Bluefruit.connected()) {
+            gaitChar.notify(data, len);
+        }
+    }
+
+    void sendData(const char* data, int len) {
+        if (Bluefruit.connected()) {
+            gaitChar.write(data, len);
             gaitChar.notify(data, len);
         }
     }

@@ -12,6 +12,7 @@ SDManager sdManager;
 BLEManager bleManager;
 
 unsigned long lastSampleTime = 0;
+unsigned long lastBatteryTime = 0;
 unsigned long correctCount = 0;
 unsigned long incorrectCount = 0;
 
@@ -19,9 +20,40 @@ unsigned long incorrectCount = 0;
 enum SystemState { SAMPLING, SYNCING };
 SystemState currentState = SAMPLING;
 
+// --- Battery helpers (from battery_read_and_adc_reporting) ---
+float readBatteryVoltage() {
+    const int NUM_SAMPLES = 16;
+    uint32_t sum = 0;
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        sum += analogRead(PIN_VBAT);
+        delay(5);
+    }
+    return (float)(sum / NUM_SAMPLES) * VBAT_SCALE;
+}
+
+int voltageToPercent(float voltage) {
+    if (voltage >= VBAT_MAX) return 100;
+    if (voltage <= VBAT_MIN) return 0;
+
+    const float v[] = { 3.0f, 3.5f, 3.6f, 3.7f, 3.85f, 4.2f };
+    const float p[] = {   0,   20,   40,   60,    80,   100  };
+
+    for (int i = 0; i < 5; i++) {
+        if (voltage <= v[i + 1]) {
+            float t = (voltage - v[i]) / (v[i + 1] - v[i]);
+            return (int)(p[i] + t * (p[i + 1] - p[i]));
+        }
+    }
+    return 100;
+}
+
 void setup() {
     Serial.begin(115200);
     analogReadResolution(12);
+
+    // Enable battery ADC path
+    pinMode(VBAT_ENABLE, OUTPUT);
+    digitalWrite(VBAT_ENABLE, LOW);
 
     // Initialize Modules
     if (imu.begin() != 0) {
@@ -43,6 +75,19 @@ void loop() {
             currentState = SYNCING;
             Serial.println("Starting BLE File Transfer...");
         }
+    }
+
+    // --- Battery reporting (runs in all states) ---
+    unsigned long now = millis();
+    if (now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
+        lastBatteryTime = now;
+
+        float vbat = readBatteryVoltage();
+        int pct = voltageToPercent(vbat);
+
+        char buf[64];
+        snprintf(buf, sizeof(buf), "VBAT:%.3f,PCT:%d", vbat, pct);
+        bleManager.sendData(buf, strlen(buf));
     }
 
     // --- State Machine ---
