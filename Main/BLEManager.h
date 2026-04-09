@@ -46,6 +46,10 @@ public:
         }
     }
 
+    bool isConnected() {
+        return Bluefruit.connected();
+    }
+
     bool isSyncRequested() {
         if (syncRequested) {
             syncRequested = false;
