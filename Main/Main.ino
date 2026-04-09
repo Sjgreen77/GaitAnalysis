@@ -12,82 +12,139 @@ SDManager sdManager;
 BLEManager bleManager;
 
 unsigned long lastSampleTime = 0;
+unsigned long lastBatteryTime = 0;
+unsigned long correctCount = 0;
+unsigned long incorrectCount = 0;
 
-// State Machine
-enum SystemState { SAMPLING, SYNCING };
-SystemState currentState = SAMPLING;
+// Sync state (only used while connected)
+bool isSyncing = false;
+
+// --- Battery helpers (from battery_read_and_adc_reporting) ---
+float readBatteryVoltage() {
+    const int NUM_SAMPLES = 16;
+    uint32_t sum = 0;
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+        sum += analogRead(PIN_VBAT);
+        delay(5);
+    }
+    return (float)(sum / NUM_SAMPLES) * VBAT_SCALE;
+}
+
+int voltageToPercent(float voltage) {
+    if (voltage >= VBAT_MAX) return 100;
+    if (voltage <= VBAT_MIN) return 0;
+
+    const float v[] = { 3.0f, 3.5f, 3.6f, 3.7f, 3.85f, 4.2f };
+    const float p[] = {   0,   20,   40,   60,    80,   100  };
+
+    for (int i = 0; i < 5; i++) {
+        if (voltage <= v[i + 1]) {
+            float t = (voltage - v[i]) / (v[i + 1] - v[i]);
+            return (int)(p[i] + t * (p[i + 1] - p[i]));
+        }
+    }
+    return 100;
+}
 
 void setup() {
     Serial.begin(115200);
     analogReadResolution(12);
+
+    // Enable battery ADC path
+    pinMode(VBAT_ENABLE, OUTPUT);
+    digitalWrite(VBAT_ENABLE, LOW);
 
     // Initialize Modules
     if (imu.begin() != 0) {
         Serial.println("IMU Error!");
         while(1);
     }
-    
+
     sdManager.begin();
     bleManager.begin();
-    
+
     Serial.println("System Ready.");
 }
 
 void loop() {
-    // Check for MATLAB Sync Command (e.g. "SYNC" was sent over BLE)
-    if (globalSyncFlag && currentState != SYNCING) {
-        globalSyncFlag = false;
-        if (sdManager.openForRead()) {
-            currentState = SYNCING;
-            Serial.println("Starting BLE File Transfer...");
+    if (bleManager.isConnected()) {
+        // ========== CONNECTED TO MATLAB ==========
+        // Report battery + handle sync requests. No step sampling.
+
+        // --- Battery reporting every 1 second ---
+        unsigned long now = millis();
+        if (now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
+            lastBatteryTime = now;
+
+            float vbat = readBatteryVoltage();
+            int pct = voltageToPercent(vbat);
+
+            char buf[64];
+            snprintf(buf, sizeof(buf), "VBAT:%.3f,PCT:%d", vbat, pct);
+            bleManager.sendData(buf, strlen(buf));
         }
-    }
 
-    // --- State Machine ---
-    switch (currentState) {
-        
-        case SAMPLING: {
-            unsigned long currentMillis = millis();
-            if (currentMillis - lastSampleTime >= SAMPLE_INTERVAL_MS) {
-                lastSampleTime = currentMillis;
-
-                // 1. Read Sensors
-                float ay = imu.readFloatAccelY();
-                float gy = imu.readFloatGyroY();
-                int heel = analogRead(PIN_ADC_HEEL);
-                int toe  = analogRead(PIN_ADC_TOE);
-
-                // 2. Add to Classifier Buffer
-                classifier.addSample(ay, gy, heel, toe);
-
-                // 3. Process Window (if full)
-                if (classifier.isReady()) {
-                    MotionState state = classifier.classifyWindow();
-                    
-                    if (state == WALKING_CORRECT || state == WALKING_INCORRECT) {
-                        Serial.println(state == WALKING_CORRECT ? "CORRECT STEP" : "INCORRECT STEP");
-                        sdManager.logStep(state);
-                    }
-                }
+        // --- Check for SYNC command ---
+        if (globalSyncFlag && !isSyncing) {
+            globalSyncFlag = false;
+            if (sdManager.openForRead()) {
+                isSyncing = true;
+                Serial.println("Starting BLE File Transfer...");
             }
-            break;
         }
 
-        case SYNCING: {
-            // Send data to MATLAB in non-blocking chunks
+        // --- Stream file data if syncing ---
+        if (isSyncing) {
             char chunk[20];
             int bytesRead = sdManager.readChunk(chunk, 20);
-            
+
             if (bytesRead > 0) {
-                bleManager.sendChunk(chunk, bytesRead);
-                delay(10); // Small delay to prevent flooding the BLE stack
+                bleManager.sendData(chunk, bytesRead);
+                delay(200); // Must be slow enough for MATLAB polling to catch each chunk
             } else {
-                // File transfer complete
-                bleManager.sendChunk("EOF", 3); // Tell MATLAB we're done
-                currentState = SAMPLING;
-                Serial.println("Transfer Complete. Resuming sampling.");
+                delay(200);
+                bleManager.sendData("EOF", 3);
+                isSyncing = false;
+                Serial.println("Transfer Complete.");
             }
-            break;
+        }
+
+    } else {
+        // ========== DISCONNECTED — STANDALONE SAMPLING ==========
+        // Collect step data and log to SD card.
+        isSyncing = false; // Reset if we were mid-sync and got disconnected
+
+        unsigned long currentMillis = millis();
+        if (currentMillis - lastSampleTime >= SAMPLE_INTERVAL_MS) {
+            lastSampleTime = currentMillis;
+
+            // 1. Read Force Sensors
+            int heel = analogRead(PIN_ADC_HEEL);
+            int toe  = analogRead(PIN_ADC_TOE);
+
+            // 2. Process step detection (assumes walking state — hardcoded for now)
+            // TODO: Re-add IMU-based motion state classification here.
+            //       When re-added, only call processSample() when state == WALKING.
+            MotionState result = classifier.processSample(heel, toe, currentMillis);
+
+            // 3. If a step just completed, log it
+            if (result == WALKING_CORRECT) {
+                correctCount++;
+                Serial.print("CORRECT STEP #");
+                Serial.print(correctCount);
+                Serial.print("  (heel="); Serial.print(heel);
+                Serial.print(" toe="); Serial.print(toe);
+                Serial.println(")");
+                sdManager.logStep(result);
+            } else if (result == WALKING_INCORRECT) {
+                incorrectCount++;
+                Serial.print("INCORRECT STEP #");
+                Serial.print(incorrectCount);
+                Serial.print("  (heel="); Serial.print(heel);
+                Serial.print(" toe="); Serial.print(toe);
+                Serial.println(")");
+                sdManager.logStep(result);
+            }
         }
     }
 }

@@ -6,80 +6,88 @@
 
 enum MotionState { STATIONARY, FIDGETING, WALKING_CORRECT, WALKING_INCORRECT, UNKNOWN };
 
+// Step detection state machine
+enum StepPhase { SWING, STANCE };
+
 class GaitClassifier {
 private:
-    float ay_buffer[WINDOW_SIZE];
-    float gy_buffer[WINDOW_SIZE];
-    int heel_buffer[WINDOW_SIZE];
-    int toe_buffer[WINDOW_SIZE];
-    
-    int insert_index = 0;
-    bool buffer_full = false;
+    StepPhase phase = SWING;
+
+    // Track whether each sensor was activated during the current step
+    bool heelActivated = false;
+    bool toeActivated  = false;
+
+    // Timing for debounce
+    unsigned long stanceStartTime = 0;
+    unsigned long swingStartTime  = 0;
+
+    // A step must last at least this long to count (filters noise)
+    static const unsigned long MIN_STANCE_MS = 150;
+    // Foot must be off ground at least this long before next step
+    static const unsigned long MIN_SWING_MS = 100;
+    // Stance longer than this is standing still, not a step
+    static const unsigned long MAX_STANCE_MS = 1000;
 
 public:
-    void addSample(float ay, float gy, int heelForce, int toeForce) {
-        ay_buffer[insert_index] = ay;
-        gy_buffer[insert_index] = gy;
-        heel_buffer[insert_index] = heelForce;
-        toe_buffer[insert_index] = toeForce;
-        
-        insert_index++;
-        if (insert_index >= WINDOW_SIZE) {
-            buffer_full = true;
-            insert_index = 0;
+    // Call this every sample (~20ms at 50Hz).
+    // Returns WALKING_CORRECT, WALKING_INCORRECT when a step completes,
+    // or UNKNOWN if no step event this sample.
+    MotionState processSample(int heelForce, int toeForce, unsigned long now) {
+        bool heelOn = (heelForce > FORCE_THRESHOLD);
+        bool toeOn  = (toeForce  > FORCE_THRESHOLD);
+        bool anyForce = heelOn || toeOn;
+
+        switch (phase) {
+            case SWING:
+                if (anyForce) {
+                    // Require minimum swing time before accepting new step
+                    if (now - swingStartTime < MIN_SWING_MS) {
+                        return UNKNOWN;
+                    }
+                    // Foot just landed — start a new stance phase
+                    phase = STANCE;
+                    stanceStartTime = now;
+                    heelActivated = heelOn;
+                    toeActivated  = toeOn;
+                }
+                return UNKNOWN; // No step event yet
+
+            case STANCE:
+                if (anyForce) {
+                    // Still on the ground — keep tracking which sensors fire
+                    if (heelOn) heelActivated = true;
+                    if (toeOn)  toeActivated  = true;
+                    return UNKNOWN;
+                } else {
+                    // Force dropped — foot just lifted off
+                    // Check if stance was long enough to be a real step
+                    if (now - stanceStartTime < MIN_STANCE_MS) {
+                        // Too short — probably noise, discard
+                        phase = SWING;
+                        swingStartTime = now;
+                        return UNKNOWN;
+                    }
+
+                    // Too long — they were standing still, not stepping
+                    if (now - stanceStartTime > MAX_STANCE_MS) {
+                        phase = SWING;
+                        swingStartTime = now;
+                        return UNKNOWN;
+                    }
+
+                    // Valid step completed — classify it
+                    phase = SWING;
+                    swingStartTime = now;
+
+                    if (heelActivated && toeActivated) {
+                        return WALKING_CORRECT;
+                    } else if (heelActivated || toeActivated) {
+                        return WALKING_INCORRECT;
+                    }
+                    return UNKNOWN; // Neither sensor fired strongly enough (shouldn't happen)
+                }
         }
-    }
-
-    bool isReady() {
-        bool ready = buffer_full;
-        if (ready) buffer_full = false; // Reset flag after reading
-        return ready;
-    }
-
-    MotionState classifyWindow() {
-        // 1. Calculate IMU Features
-        float sum_ay = 0, sum_gy = 0;
-        for (int i = 0; i < WINDOW_SIZE; i++) {
-            sum_ay += ay_buffer[i];
-            sum_gy += gy_buffer[i];
-        }
-        float mean_ay = sum_ay / WINDOW_SIZE;
-        float mean_gy = sum_gy / WINDOW_SIZE;
-
-        float sum_sq_ay = 0, sum_sq_gy = 0;
-        for (int i = 0; i < WINDOW_SIZE; i++) {
-            sum_sq_ay += pow(ay_buffer[i] - mean_ay, 2);
-            sum_sq_gy += pow(gy_buffer[i] - mean_gy, 2);
-        }
-        float std_ay = sqrt(sum_sq_ay / (WINDOW_SIZE - 1));
-        float std_gy = sqrt(sum_sq_gy / (WINDOW_SIZE - 1));
-
-        // 2. Decision Tree for Motion State
-        if (std_ay < 0.0326435) return STATIONARY;
-        if (mean_ay >= -0.213568 && std_gy < 60.6775) return FIDGETING;
-        
-        // 3. If Walking, evaluate gait using ADC buffers
-        return evaluateGait();
-    }
-
-private:
-    MotionState evaluateGait() {
-        int max_heel = 0;
-        int max_toe = 0;
-
-        // Find the peak force exerted during this 1-second walking window
-        for (int i = 0; i < WINDOW_SIZE; i++) {
-            if (heel_buffer[i] > max_heel) max_heel = heel_buffer[i];
-            if (toe_buffer[i] > max_toe) max_toe = toe_buffer[i];
-        }
-
-        // Logic: Correct step requires heel strike. Incorrect is toe only.
-        if (max_heel > FORCE_THRESHOLD) {
-            return WALKING_CORRECT;
-        } else if (max_toe > FORCE_THRESHOLD) {
-            return WALKING_INCORRECT;
-        }
-        return UNKNOWN; // Failsafe
+        return UNKNOWN;
     }
 };
 
