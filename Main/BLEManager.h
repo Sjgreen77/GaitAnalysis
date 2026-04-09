@@ -21,6 +21,14 @@ public:
         Bluefruit.begin(1, 1); // 1 peripheral, 1 central
         Bluefruit.setName("SensePlus");
 
+        // LED off by default (HIGH = off on XIAO)
+        pinMode(LED_BLUE, OUTPUT);
+        digitalWrite(LED_BLUE, HIGH);
+
+        // Connection callbacks for LED indicator
+        Bluefruit.Periph.setConnectCallback(connect_callback);
+        Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
+
         gaitService.begin();
 
         // Allow MATLAB to Read, Notify, and Write commands to this characteristic
@@ -70,6 +78,18 @@ public:
             // but we'll manage it via a slight hack for the sake of the wrapper:
             triggerSync(); 
         }
+    }
+
+    // Static callbacks for BLE connection events
+    static void connect_callback(uint16_t conn_handle) {
+        (void)conn_handle;
+        digitalWrite(LED_BLUE, LOW);  // LOW = on for XIAO
+    }
+
+    static void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
+        (void)conn_handle;
+        (void)reason;
+        digitalWrite(LED_BLUE, HIGH); // HIGH = off
     }
 
 private:
