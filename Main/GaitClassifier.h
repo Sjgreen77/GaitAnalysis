@@ -70,9 +70,9 @@ public:
                     phase = SWING;
                     swingStartTime = now;
 
-                    if (heelActivated) {
+                    if (heelActivated && toeActivated) {
                         return WALKING_CORRECT;
-                    } else if (toeActivated) {
+                    } else if (heelActivated || toeActivated) {
                         return WALKING_INCORRECT;
                     }
                     return UNKNOWN; // Neither sensor fired strongly enough (shouldn't happen)
