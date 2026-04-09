@@ -99,10 +99,11 @@ void loop() {
             int bytesRead = sdManager.readChunk(chunk, 20);
 
             if (bytesRead > 0) {
-                bleManager.sendChunk(chunk, bytesRead);
-                delay(10);
+                bleManager.sendData(chunk, bytesRead);
+                delay(200); // Must be slow enough for MATLAB polling to catch each chunk
             } else {
-                bleManager.sendChunk("EOF", 3);
+                delay(200);
+                bleManager.sendData("EOF", 3);
                 isSyncing = false;
                 Serial.println("Transfer Complete.");
             }
