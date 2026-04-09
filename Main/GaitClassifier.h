@@ -25,6 +25,8 @@ private:
     static const unsigned long MIN_STANCE_MS = 150;
     // Foot must be off ground at least this long before next step
     static const unsigned long MIN_SWING_MS = 100;
+    // Stance longer than this is standing still, not a step
+    static const unsigned long MAX_STANCE_MS = 1000;
 
 public:
     // Call this every sample (~20ms at 50Hz).
@@ -61,6 +63,13 @@ public:
                     // Check if stance was long enough to be a real step
                     if (now - stanceStartTime < MIN_STANCE_MS) {
                         // Too short — probably noise, discard
+                        phase = SWING;
+                        swingStartTime = now;
+                        return UNKNOWN;
+                    }
+
+                    // Too long — they were standing still, not stepping
+                    if (now - stanceStartTime > MAX_STANCE_MS) {
                         phase = SWING;
                         swingStartTime = now;
                         return UNKNOWN;
