@@ -66,14 +66,40 @@ void setup() {
     Serial.println("System Ready.");
 }
 
+// Called when SYNC starts and each time MATLAB sends NEXT.
+// Writes next 240-byte chunk to characteristic value so MATLAB can read it.
+void writeNextSyncChunk() {
+    uint8_t chunk[240];
+    int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
+
+    Serial.print("[WRITE_CHUNK] bytesRead=");
+    Serial.print(bytesRead);
+
+    if (bytesRead > 0) {
+        Serial.print(" first_bytes=");
+        for (int i = 0; i < (bytesRead < 10 ? bytesRead : 10); i++) {
+            Serial.print((char)chunk[i]);
+        }
+        Serial.println("...");
+        bleManager.writeCharValue(chunk, bytesRead);
+    } else {
+        Serial.println(" -> sending EOF marker");
+        // Send distinctive EOF marker that can't be confused with data
+        bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
+        delay(10);  // Brief delay to ensure marker is written
+        isSyncing = false;
+        Serial.println("Transfer Complete.");
+    }
+}
+
 void loop() {
     if (bleManager.isConnected()) {
         // ========== CONNECTED TO MATLAB ==========
         // Report battery + handle sync requests. No step sampling.
 
-        // --- Battery reporting every 1 second ---
+        // --- Battery reporting every 1 second (skip during sync) ---
         unsigned long now = millis();
-        if (now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
+        if (!isSyncing && now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
             lastBatteryTime = now;
 
             float vbat = readBatteryVoltage();
@@ -84,29 +110,46 @@ void loop() {
             bleManager.sendData(buf, strlen(buf));
         }
 
-        // --- Check for SYNC command ---
+        // --- SYNC command: open all session files and stream the first chunk ---
         if (globalSyncFlag && !isSyncing) {
+            Serial.println("[MAIN] SYNC received, opening all sessions for read...");
             globalSyncFlag = false;
-            if (sdManager.openForRead()) {
+            if (sdManager.openAllSessionsForRead()) {
                 isSyncing = true;
-                Serial.println("Starting BLE File Transfer...");
+                delay(100); // Let any in-flight battery notification finish
+                Serial.print("[MAIN] Transferring ");
+                Serial.print(sdManager.getTotalSessions());
+                Serial.println(" session(s).");
+                writeNextSyncChunk();
+            } else {
+                Serial.println("[MAIN] No session data found on SD card.");
+                // Tell MATLAB there's nothing to receive
+                bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
             }
         }
 
-        // --- Stream file data if syncing ---
-        if (isSyncing) {
-            char chunk[20];
-            int bytesRead = sdManager.readChunk(chunk, 20);
-
-            if (bytesRead > 0) {
-                bleManager.sendData(chunk, bytesRead);
-                delay(200); // Must be slow enough for MATLAB polling to catch each chunk
+        // --- NEXT command: MATLAB has read the last chunk, send the next one ---
+        if (globalNextFlag) {
+            globalNextFlag = false;
+            if (isSyncing) {
+                Serial.println("[MAIN] NEXT received, writing next chunk...");
+                writeNextSyncChunk();
             } else {
-                delay(200);
-                bleManager.sendData("EOF", 3);
-                isSyncing = false;
-                Serial.println("Transfer Complete.");
+                // Transfer already finished but MATLAB hasn't seen [EOF] yet —
+                // re-send it so MATLAB exits its polling loop.
+                Serial.println("[MAIN] NEXT received after EOF — resending [EOF]");
+                bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
             }
+        }
+
+        // --- DONE command: MATLAB confirmed successful save, clear all sessions ---
+        if (globalDoneFlag) {
+            globalDoneFlag = false;
+            isSyncing = false;
+            Serial.println("[MAIN] DONE received. Clearing all session data...");
+            sdManager.deleteAllSessions();
+            bleManager.writeCharValue((const uint8_t*)"[CLEARED]", 9);
+            Serial.println("[MAIN] SD card cleared. Ready for new recording.");
         }
 
     } else {

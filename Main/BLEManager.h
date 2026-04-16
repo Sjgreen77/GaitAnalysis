@@ -6,20 +6,27 @@
 
 // Forward declarations for the static BLE callback
 volatile bool globalSyncFlag = false;
+volatile bool globalNextFlag = false;
+volatile bool globalDoneFlag = false;
 void triggerSync() { globalSyncFlag = true; }
+void triggerNext() { globalNextFlag = true; }
+void triggerDone() { globalDoneFlag = true; }
 
 class BLEManager {
 private:
     BLEService gaitService;
     BLECharacteristic gaitChar;
-    bool syncRequested = false;
 
 public:
     BLEManager() : gaitService(SERVICE_UUID), gaitChar(CHAR_UUID) {}
 
     void begin() {
-        Bluefruit.begin(1, 1); // 1 peripheral, 1 central
+        Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+
+        Bluefruit.begin(1, 1);
         Bluefruit.setName("SensePlus");
+
+        Bluefruit.Periph.setConnInterval(6, 12);
 
         // LED off by default (HIGH = off on XIAO)
         pinMode(LED_BLUE, OUTPUT);
@@ -31,22 +38,16 @@ public:
 
         gaitService.begin();
 
-        // Allow MATLAB to Read, Notify, and Write commands to this characteristic
         gaitChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE);
         gaitChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
         gaitChar.setWriteCallback(write_callback);
-        gaitChar.setMaxLen(64);
+        gaitChar.setMaxLen(244);
         gaitChar.begin();
 
         startAdvertising();
     }
 
-    void sendChunk(const char* data, int len) {
-        if (Bluefruit.connected()) {
-            gaitChar.notify(data, len);
-        }
-    }
-
+    // For battery reporting (write + notify so MATLAB polling sees it)
     void sendData(const char* data, int len) {
         if (Bluefruit.connected()) {
             gaitChar.write(data, len);
@@ -54,42 +55,47 @@ public:
         }
     }
 
-    bool isConnected() {
-        return Bluefruit.connected();
+    // Write data to characteristic value (for request-response file transfer)
+    void writeCharValue(const uint8_t* data, uint16_t len) {
+        gaitChar.write(data, len);
     }
 
-    bool isSyncRequested() {
-        if (syncRequested) {
-            syncRequested = false;
-            return true;
-        }
-        return false;
+    bool isConnected() {
+        return Bluefruit.connected();
     }
 
     // Static callback wrapper required by Bluefruit library
     static void write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
         String command = "";
         for (int i = 0; i < len; i++) command += (char)data[i];
-        
-        if (command.indexOf("SYNC") >= 0) {
-            // Can't access non-static members directly here, so we set a flag 
-            // handled externally, or pass instance pointers. 
-            // For simplicity in this architecture, we assume a global flag if needed, 
-            // but we'll manage it via a slight hack for the sake of the wrapper:
-            triggerSync(); 
+
+        Serial.print("[BLE_WRITE_CB] len=");
+        Serial.print(len);
+        Serial.print(" data=");
+        Serial.println(command);
+
+        if (command.indexOf("DONE") >= 0) {
+            Serial.println("[BLE_WRITE_CB] -> DONE detected, triggerDone()");
+            triggerDone();
+        } else if (command.indexOf("SYNC") >= 0) {
+            Serial.println("[BLE_WRITE_CB] -> SYNC detected, triggerSync()");
+            triggerSync();
+        } else if (command.indexOf("NEXT") >= 0) {
+            Serial.println("[BLE_WRITE_CB] -> NEXT detected, triggerNext()");
+            triggerNext();
         }
     }
 
     // Static callbacks for BLE connection events
     static void connect_callback(uint16_t conn_handle) {
         (void)conn_handle;
-        digitalWrite(LED_BLUE, LOW);  // LOW = on for XIAO
+        digitalWrite(LED_BLUE, LOW);
     }
 
     static void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
         (void)conn_handle;
         (void)reason;
-        digitalWrite(LED_BLUE, HIGH); // HIGH = off
+        digitalWrite(LED_BLUE, HIGH);
     }
 
 private:
