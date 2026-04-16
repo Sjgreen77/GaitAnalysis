@@ -100,16 +100,12 @@ void loop() {
             int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
 
             if (bytesRead > 0) {
-                // Flow control: retry until BLE stack accepts the packet
-                while (!bleManager.notifyData(chunk, bytesRead)) {
-                    delay(1);
-                }
+                bleManager.notifyData(chunk, bytesRead);
+                delay(10); // Pace notifications so BLE queue doesn't overflow
             } else {
-                // File finished — send EOF marker
+                delay(10);
                 const uint8_t eof[] = {'E', 'O', 'F'};
-                while (!bleManager.notifyData(eof, 3)) {
-                    delay(1);
-                }
+                bleManager.notifyData(eof, 3);
                 isSyncing = false;
                 Serial.println("Transfer Complete.");
             }
