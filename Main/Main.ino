@@ -96,7 +96,7 @@ void loop() {
 
         // --- Stream file data if syncing ---
         if (isSyncing) {
-            uint8_t chunk[240];
+            uint8_t chunk[20];
             int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
 
             if (bytesRead > 0) {
