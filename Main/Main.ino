@@ -66,6 +66,20 @@ void setup() {
     Serial.println("System Ready.");
 }
 
+// Called when SYNC starts and each time MATLAB sends NEXT.
+// Writes next 240-byte chunk to characteristic value so MATLAB can read it.
+void writeNextSyncChunk() {
+    uint8_t chunk[240];
+    int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
+    if (bytesRead > 0) {
+        bleManager.writeCharValue(chunk, bytesRead);
+    } else {
+        bleManager.writeCharValue((const uint8_t*)"EOF", 3);
+        isSyncing = false;
+        Serial.println("Transfer Complete.");
+    }
+}
+
 void loop() {
     if (bleManager.isConnected()) {
         // ========== CONNECTED TO MATLAB ==========
@@ -84,31 +98,21 @@ void loop() {
             bleManager.sendData(buf, strlen(buf));
         }
 
-        // --- Check for SYNC command ---
+        // --- Check for SYNC command: open file and write first chunk ---
         if (globalSyncFlag && !isSyncing) {
             globalSyncFlag = false;
             if (sdManager.openForRead()) {
                 isSyncing = true;
                 delay(100); // Let any in-flight battery notification finish
                 Serial.println("Starting BLE File Transfer...");
+                writeNextSyncChunk();
             }
         }
 
-        // --- Stream file data if syncing ---
-        if (isSyncing) {
-            uint8_t chunk[20];
-            int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
-
-            if (bytesRead > 0) {
-                bleManager.notifyData(chunk, bytesRead);
-                delay(10); // Pace notifications so BLE queue doesn't overflow
-            } else {
-                delay(10);
-                const uint8_t eof[] = {'E', 'O', 'F'};
-                bleManager.notifyData(eof, 3);
-                isSyncing = false;
-                Serial.println("Transfer Complete.");
-            }
+        // --- NEXT command: MATLAB has read the last chunk, send the next one ---
+        if (isSyncing && globalNextFlag) {
+            globalNextFlag = false;
+            writeNextSyncChunk();
         }
 
     } else {
