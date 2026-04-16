@@ -7,8 +7,10 @@
 // Forward declarations for the static BLE callback
 volatile bool globalSyncFlag = false;
 volatile bool globalNextFlag = false;
+volatile bool globalDoneFlag = false;
 void triggerSync() { globalSyncFlag = true; }
 void triggerNext() { globalNextFlag = true; }
+void triggerDone() { globalDoneFlag = true; }
 
 class BLEManager {
 private:
@@ -72,7 +74,10 @@ public:
         Serial.print(" data=");
         Serial.println(command);
 
-        if (command.indexOf("SYNC") >= 0) {
+        if (command.indexOf("DONE") >= 0) {
+            Serial.println("[BLE_WRITE_CB] -> DONE detected, triggerDone()");
+            triggerDone();
+        } else if (command.indexOf("SYNC") >= 0) {
             Serial.println("[BLE_WRITE_CB] -> SYNC detected, triggerSync()");
             triggerSync();
         } else if (command.indexOf("NEXT") >= 0) {

@@ -110,25 +110,39 @@ void loop() {
             bleManager.sendData(buf, strlen(buf));
         }
 
-        // --- Check for SYNC command: open file and write first chunk ---
+        // --- SYNC command: open all session files and stream the first chunk ---
         if (globalSyncFlag && !isSyncing) {
-            Serial.println("[MAIN] globalSyncFlag set, opening file for read...");
+            Serial.println("[MAIN] SYNC received, opening all sessions for read...");
             globalSyncFlag = false;
-            if (sdManager.openForRead()) {
+            if (sdManager.openAllSessionsForRead()) {
                 isSyncing = true;
                 delay(100); // Let any in-flight battery notification finish
-                Serial.println("Starting BLE File Transfer...");
+                Serial.print("[MAIN] Transferring ");
+                Serial.print(sdManager.getTotalSessions());
+                Serial.println(" session(s).");
                 writeNextSyncChunk();
             } else {
-                Serial.println("[ERROR] Failed to open file for read");
+                Serial.println("[MAIN] No session data found on SD card.");
+                // Tell MATLAB there's nothing to receive
+                bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
             }
         }
 
         // --- NEXT command: MATLAB has read the last chunk, send the next one ---
         if (isSyncing && globalNextFlag) {
-            Serial.println("[MAIN] globalNextFlag set, writing next chunk...");
+            Serial.println("[MAIN] NEXT received, writing next chunk...");
             globalNextFlag = false;
             writeNextSyncChunk();
+        }
+
+        // --- DONE command: MATLAB confirmed successful save, clear all sessions ---
+        if (globalDoneFlag) {
+            globalDoneFlag = false;
+            isSyncing = false;
+            Serial.println("[MAIN] DONE received. Clearing all session data...");
+            sdManager.deleteAllSessions();
+            bleManager.writeCharValue((const uint8_t*)"[CLEARED]", 9);
+            Serial.println("[MAIN] SD card cleared. Ready for new recording.");
         }
 
     } else {
