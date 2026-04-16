@@ -191,11 +191,13 @@ public:
             }
         }
 
-        // Reset counter — next boot records into s1.csv again
+        // Reset counter and immediately begin a fresh session.
+        // beginSession() reads 1, sets currentSessionFile = "s1.csv", then writes
+        // session.txt = 2 — so if recording resumes before the next power cycle it
+        // writes to s1.csv, and the next boot correctly advances to s2.csv.
         writeSessionFile(1);
-        currentSession = 1;
-        snprintf(currentSessionFile, sizeof(currentSessionFile), "s1.csv");
-        Serial.println("[SD] All sessions cleared. Counter reset to 1.");
+        beginSession();
+        Serial.println("[SD] All sessions cleared. Ready for new recording.");
     }
 
     int getCurrentSession() const { return currentSession; }
