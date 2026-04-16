@@ -21,22 +21,24 @@ private:
 
     int readSessionFile() {
         if (!SD.exists("session.txt")) return 1;
-        File f = SD.open("session.txt", FILE_READ);
-        if (!f) return 1;
+        if (dataFile.isOpen()) dataFile.close();
+        dataFile = SD.open("session.txt", FILE_READ);
+        if (!dataFile.isOpen()) return 1;
         String s = "";
-        while (f.available()) s += (char)f.read();
-        f.close();
+        while (dataFile.available()) s += (char)dataFile.read();
+        dataFile.close();
         int n = s.toInt();
         return (n >= 1 && n <= MAX_SESSIONS) ? n : 1;
     }
 
     void writeSessionFile(int n) {
         // Remove then recreate to ensure clean overwrite (no partial appends)
+        if (dataFile.isOpen()) dataFile.close();
         if (SD.exists("session.txt")) SD.remove("session.txt");
-        File f = SD.open("session.txt", FILE_WRITE);
-        if (f) {
-            f.println(n);
-            f.close();
+        dataFile = SD.open("session.txt", FILE_WRITE);
+        if (dataFile.isOpen()) {
+            dataFile.println(n);
+            dataFile.close();
         } else {
             Serial.println("[SD] ERROR: could not write session.txt");
         }
