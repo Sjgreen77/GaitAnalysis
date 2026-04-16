@@ -129,10 +129,17 @@ void loop() {
         }
 
         // --- NEXT command: MATLAB has read the last chunk, send the next one ---
-        if (isSyncing && globalNextFlag) {
-            Serial.println("[MAIN] NEXT received, writing next chunk...");
+        if (globalNextFlag) {
             globalNextFlag = false;
-            writeNextSyncChunk();
+            if (isSyncing) {
+                Serial.println("[MAIN] NEXT received, writing next chunk...");
+                writeNextSyncChunk();
+            } else {
+                // Transfer already finished but MATLAB hasn't seen [EOF] yet —
+                // re-send it so MATLAB exits its polling loop.
+                Serial.println("[MAIN] NEXT received after EOF — resending [EOF]");
+                bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
+            }
         }
 
         // --- DONE command: MATLAB confirmed successful save, clear all sessions ---
