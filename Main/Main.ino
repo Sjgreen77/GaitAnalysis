@@ -83,8 +83,10 @@ void writeNextSyncChunk() {
         Serial.println("...");
         bleManager.writeCharValue(chunk, bytesRead);
     } else {
-        Serial.println(" -> sending EOF");
-        bleManager.writeCharValue((const uint8_t*)"EOF", 3);
+        Serial.println(" -> sending EOF marker");
+        // Send distinctive EOF marker that can't be confused with data
+        bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
+        delay(10);  // Brief delay to ensure marker is written
         isSyncing = false;
         Serial.println("Transfer Complete.");
     }
