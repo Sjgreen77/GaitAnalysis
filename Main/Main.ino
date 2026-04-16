@@ -89,6 +89,7 @@ void loop() {
             globalSyncFlag = false;
             if (sdManager.openForRead()) {
                 isSyncing = true;
+                delay(100); // Let any in-flight battery notification finish
                 Serial.println("Starting BLE File Transfer...");
             }
         }
