@@ -18,8 +18,15 @@ public:
     BLEManager() : gaitService(SERVICE_UUID), gaitChar(CHAR_UUID) {}
 
     void begin() {
+        // Configure for max throughput BEFORE begin()
+        // Sets MTU=247, fast connection interval, large TX queue
+        Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
+
         Bluefruit.begin(1, 1); // 1 peripheral, 1 central
         Bluefruit.setName("SensePlus");
+
+        // Request fast connection interval: 7.5ms - 15ms (units of 1.25ms)
+        Bluefruit.Periph.setConnInterval(6, 12);
 
         // LED off by default (HIGH = off on XIAO)
         pinMode(LED_BLUE, OUTPUT);
@@ -35,23 +42,24 @@ public:
         gaitChar.setProperties(CHR_PROPS_NOTIFY | CHR_PROPS_READ | CHR_PROPS_WRITE);
         gaitChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
         gaitChar.setWriteCallback(write_callback);
-        gaitChar.setMaxLen(64);
+        gaitChar.setMaxLen(244); // Support up to MTU 247 (247 - 3 ATT header)
         gaitChar.begin();
 
         startAdvertising();
     }
 
-    void sendChunk(const char* data, int len) {
-        if (Bluefruit.connected()) {
-            gaitChar.notify(data, len);
-        }
-    }
-
+    // For battery reporting (write + notify so MATLAB read() sees latest value)
     void sendData(const char* data, int len) {
         if (Bluefruit.connected()) {
             gaitChar.write(data, len);
             gaitChar.notify(data, len);
         }
+    }
+
+    // Fast notification for file transfer — returns false if BLE queue is full
+    bool notifyData(const uint8_t* data, uint16_t len) {
+        if (!Bluefruit.connected()) return false;
+        return gaitChar.notify(data, len);
     }
 
     bool isConnected() {
@@ -70,13 +78,9 @@ public:
     static void write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
         String command = "";
         for (int i = 0; i < len; i++) command += (char)data[i];
-        
+
         if (command.indexOf("SYNC") >= 0) {
-            // Can't access non-static members directly here, so we set a flag 
-            // handled externally, or pass instance pointers. 
-            // For simplicity in this architecture, we assume a global flag if needed, 
-            // but we'll manage it via a slight hack for the sake of the wrapper:
-            triggerSync(); 
+            triggerSync();
         }
     }
 

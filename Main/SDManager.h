@@ -41,13 +41,14 @@ public:
         return dataFile.isOpen();
     }
 
-    // Reads a 20-byte chunk for BLE
-    int readChunk(char* buffer, int maxLen) {
+    // Reads a raw chunk for BLE file transfer (no null terminator)
+    int readChunkRaw(uint8_t* buffer, int maxLen) {
         if (!dataFile.isOpen()) return 0;
-        int bytesRead = dataFile.read(buffer, maxLen - 1);
-        buffer[bytesRead] = '\0'; // Null terminate
-        
-        if (bytesRead == 0) dataFile.close(); // EOF
+        int bytesRead = dataFile.read(buffer, maxLen);
+        if (bytesRead <= 0) {
+            dataFile.close();
+            return 0;
+        }
         return bytesRead;
     }
 };

@@ -71,9 +71,9 @@ void loop() {
         // ========== CONNECTED TO MATLAB ==========
         // Report battery + handle sync requests. No step sampling.
 
-        // --- Battery reporting every 1 second ---
+        // --- Battery reporting every 1 second (skip during sync) ---
         unsigned long now = millis();
-        if (now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
+        if (!isSyncing && now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
             lastBatteryTime = now;
 
             float vbat = readBatteryVoltage();
@@ -95,15 +95,20 @@ void loop() {
 
         // --- Stream file data if syncing ---
         if (isSyncing) {
-            char chunk[20];
-            int bytesRead = sdManager.readChunk(chunk, 20);
+            uint8_t chunk[240];
+            int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
 
             if (bytesRead > 0) {
-                bleManager.sendData(chunk, bytesRead);
-                delay(200); // Must be slow enough for MATLAB polling to catch each chunk
+                // Flow control: retry until BLE stack accepts the packet
+                while (!bleManager.notifyData(chunk, bytesRead)) {
+                    delay(1);
+                }
             } else {
-                delay(200);
-                bleManager.sendData("EOF", 3);
+                // File finished — send EOF marker
+                const uint8_t eof[] = {'E', 'O', 'F'};
+                while (!bleManager.notifyData(eof, 3)) {
+                    delay(1);
+                }
                 isSyncing = false;
                 Serial.println("Transfer Complete.");
             }
