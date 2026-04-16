@@ -67,9 +67,16 @@ public:
         String command = "";
         for (int i = 0; i < len; i++) command += (char)data[i];
 
+        Serial.print("[BLE_WRITE_CB] len=");
+        Serial.print(len);
+        Serial.print(" data=");
+        Serial.println(command);
+
         if (command.indexOf("SYNC") >= 0) {
+            Serial.println("[BLE_WRITE_CB] -> SYNC detected, triggerSync()");
             triggerSync();
         } else if (command.indexOf("NEXT") >= 0) {
+            Serial.println("[BLE_WRITE_CB] -> NEXT detected, triggerNext()");
             triggerNext();
         }
     }

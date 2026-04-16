@@ -71,9 +71,19 @@ void setup() {
 void writeNextSyncChunk() {
     uint8_t chunk[240];
     int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
+
+    Serial.print("[WRITE_CHUNK] bytesRead=");
+    Serial.print(bytesRead);
+
     if (bytesRead > 0) {
+        Serial.print(" first_bytes=");
+        for (int i = 0; i < (bytesRead < 10 ? bytesRead : 10); i++) {
+            Serial.print((char)chunk[i]);
+        }
+        Serial.println("...");
         bleManager.writeCharValue(chunk, bytesRead);
     } else {
+        Serial.println(" -> sending EOF");
         bleManager.writeCharValue((const uint8_t*)"EOF", 3);
         isSyncing = false;
         Serial.println("Transfer Complete.");
@@ -100,17 +110,21 @@ void loop() {
 
         // --- Check for SYNC command: open file and write first chunk ---
         if (globalSyncFlag && !isSyncing) {
+            Serial.println("[MAIN] globalSyncFlag set, opening file for read...");
             globalSyncFlag = false;
             if (sdManager.openForRead()) {
                 isSyncing = true;
                 delay(100); // Let any in-flight battery notification finish
                 Serial.println("Starting BLE File Transfer...");
                 writeNextSyncChunk();
+            } else {
+                Serial.println("[ERROR] Failed to open file for read");
             }
         }
 
         // --- NEXT command: MATLAB has read the last chunk, send the next one ---
         if (isSyncing && globalNextFlag) {
+            Serial.println("[MAIN] globalNextFlag set, writing next chunk...");
             globalNextFlag = false;
             writeNextSyncChunk();
         }
