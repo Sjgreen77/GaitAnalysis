@@ -60,10 +60,11 @@ private:
         return dataFile.isOpen();
     }
 
-    // Determine how many session files actually exist on the card
+    // Determine how many session files actually exist on the card.
+    // Includes the current session (i <= currentSession) so active data is transferred.
     int countExistingSessions() {
         int count = 0;
-        for (int i = 1; i < currentSession; i++) {
+        for (int i = 1; i <= currentSession; i++) {
             char fname[16];
             snprintf(fname, sizeof(fname), "s%d.csv", i);
             if (SD.exists(fname)) count = i;  // Track highest valid index
@@ -178,7 +179,7 @@ public:
         if (dataFile.isOpen()) dataFile.close();
 
         Serial.println("[SD] Clearing all session files...");
-        for (int i = 1; i < currentSession; i++) {
+        for (int i = 1; i <= currentSession; i++) {  // <= includes active session
             char fname[16];
             snprintf(fname, sizeof(fname), "s%d.csv", i);
             if (SD.exists(fname)) {
