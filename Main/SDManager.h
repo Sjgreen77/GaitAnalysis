@@ -16,6 +16,7 @@ private:
     int    currentReadSession = 1;   // Session being streamed during transfer
     int    totalSessions      = 0;   // How many sessions exist for transfer
     char   currentSessionFile[16];   // e.g. "s1.csv"
+    bool   hasWrittenThisSession = false; // Bumps session.txt on first write only
 
     // --- Private helpers ---
 
@@ -85,12 +86,14 @@ public:
         beginSession();
     }
 
-    // Called once at startup: reads session counter, names the new session file,
-    // and increments the counter so the next boot gets a fresh slot.
+    // Called at startup (and after deleteAllSessions): reads session counter
+    // and names the current session file. Does NOT advance session.txt — that
+    // only happens on the first actual write (see logStep). This way a quick
+    // boot-and-power-off without recording doesn't consume a session slot.
     void beginSession() {
         currentSession = readSessionFile();
         snprintf(currentSessionFile, sizeof(currentSessionFile), "s%d.csv", currentSession);
-        writeSessionFile(currentSession + 1);  // Reserve next slot for next boot
+        hasWrittenThisSession = false;
 
         Serial.print("[SD] Starting session ");
         Serial.print(currentSession);
@@ -98,7 +101,9 @@ public:
         Serial.println(currentSessionFile);
     }
 
-    // Append one step to the current session file
+    // Append one step to the current session file.
+    // On the FIRST successful write of this session, advance session.txt to
+    // currentSession + 1 so the next power cycle lands on a fresh file.
     void logStep(MotionState state) {
         if (!isInitialized) return;
 
@@ -108,6 +113,15 @@ public:
             dataFile.print(",");
             dataFile.println(state == WALKING_CORRECT ? "CORRECT" : "INCORRECT");
             dataFile.close();
+
+            if (!hasWrittenThisSession) {
+                hasWrittenThisSession = true;
+                writeSessionFile(currentSession + 1);
+                Serial.print("[SD] First write to session ");
+                Serial.print(currentSession);
+                Serial.print(" -> session.txt advanced to ");
+                Serial.println(currentSession + 1);
+            }
         } else {
             Serial.println("[SD] logStep: ERROR opening session file");
         }
@@ -191,11 +205,18 @@ public:
             }
         }
 
-        // Reset counter — next boot records into s1.csv again
-        writeSessionFile(1);
+        // Reset session state so the next recording (or next boot) starts at s1.csv.
+        // session.txt stays at 1 — it will only advance to 2 once data is actually
+        // written (see logStep). This handles both cases correctly:
+        //   - Record immediately after upload: logStep bumps session.txt to 2,
+        //     so next boot opens s2.csv.
+        //   - Power off immediately after upload: next boot reads 1, opens s1.csv,
+        //     and session.txt stays at 1 until something is recorded.
         currentSession = 1;
         snprintf(currentSessionFile, sizeof(currentSessionFile), "s1.csv");
-        Serial.println("[SD] All sessions cleared. Counter reset to 1.");
+        writeSessionFile(1);
+        hasWrittenThisSession = false;
+        Serial.println("[SD] All sessions cleared. Ready to record into s1.csv.");
     }
 
     int getCurrentSession() const { return currentSession; }
