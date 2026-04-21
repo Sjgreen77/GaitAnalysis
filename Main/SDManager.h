@@ -191,11 +191,13 @@ public:
             }
         }
 
-        // Reset counter — next boot records into s1.csv again
-        writeSessionFile(1);
+        // Reset to s1.csv for any recording that happens before the next power cycle,
+        // but pre-increment session.txt to 2 so the next boot advances to s2.csv.
+        // Invariant: session.txt always holds currentSession + 1 while powered on.
         currentSession = 1;
         snprintf(currentSessionFile, sizeof(currentSessionFile), "s1.csv");
-        Serial.println("[SD] All sessions cleared. Counter reset to 1.");
+        writeSessionFile(2);   // next boot → s2.csv
+        Serial.println("[SD] All sessions cleared. Ready to record into s1.csv.");
     }
 
     int getCurrentSession() const { return currentSession; }
