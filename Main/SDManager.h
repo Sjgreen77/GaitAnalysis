@@ -2,6 +2,7 @@
 #define SD_MANAGER_H
 
 #include "Config.h"
+#include "GaitClassifier.h"   // for StepType
 #include <SPI.h>
 #include "SdFat.h"
 
@@ -104,14 +105,14 @@ public:
     // Append one step to the current session file.
     // On the FIRST successful write of this session, advance session.txt to
     // currentSession + 1 so the next power cycle lands on a fresh file.
-    void logStep(MotionState state) {
+    void logStep(StepType step) {
         if (!isInitialized) return;
 
         dataFile = SD.open(currentSessionFile, FILE_WRITE);
         if (dataFile) {
             dataFile.print(millis());
             dataFile.print(",");
-            dataFile.println(state == WALKING_CORRECT ? "CORRECT" : "INCORRECT");
+            dataFile.println(step == STEP_CORRECT ? "CORRECT" : "INCORRECT");
             dataFile.close();
 
             if (!hasWrittenThisSession) {

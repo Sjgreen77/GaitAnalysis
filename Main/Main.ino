@@ -2,14 +2,21 @@
 #include <LSM6DS3.h>
 #include "Config.h"
 #include "GaitClassifier.h"
+#include "MotionClassifier.h"
 #include "SDManager.h"
 #include "BLEManager.h"
 
 // --- Global Instances ---
 LSM6DS3 imu(I2C_MODE, 0x6A);
-GaitClassifier classifier;
-SDManager sdManager;
-BLEManager bleManager;
+GaitClassifier   classifier;
+MotionClassifier motionClassifier;
+SDManager        sdManager;
+BLEManager       bleManager;
+
+// Track previous motion state so we can reset the step classifier
+// when leaving WALKING (prevents stale stance state from triggering
+// a phantom step when walking resumes).
+MotionState prevMotion = STATIONARY;
 
 unsigned long lastSampleTime = 0;
 unsigned long lastBatteryTime = 0;
@@ -161,32 +168,49 @@ void loop() {
         if (currentMillis - lastSampleTime >= SAMPLE_INTERVAL_MS) {
             lastSampleTime = currentMillis;
 
-            // 1. Read Force Sensors
+            // 1. Read all sensors
+            float ax = imu.readFloatAccelX();
+            float ay = imu.readFloatAccelY();
+            float az = imu.readFloatAccelZ();
+            float gx = imu.readFloatGyroX();
+            float gy = imu.readFloatGyroY();
+            float gz = imu.readFloatGyroZ();
             int heel = analogRead(PIN_ADC_HEEL);
             int toe  = analogRead(PIN_ADC_TOE);
 
-            // 2. Process step detection (assumes walking state — hardcoded for now)
-            // TODO: Re-add IMU-based motion state classification here.
-            //       When re-added, only call processSample() when state == WALKING.
-            MotionState result = classifier.processSample(heel, toe, currentMillis);
+            // 2. Top-level motion state — fed every sample, decision refreshed once/sec
+            MotionState motion = motionClassifier.processSample(ax, ay, az,
+                                                                 gx, gy, gz,
+                                                                 heel, toe);
 
-            // 3. If a step just completed, log it
-            if (result == WALKING_CORRECT) {
-                correctCount++;
-                Serial.print("CORRECT STEP #");
-                Serial.print(correctCount);
-                Serial.print("  (heel="); Serial.print(heel);
-                Serial.print(" toe="); Serial.print(toe);
-                Serial.println(")");
-                sdManager.logStep(result);
-            } else if (result == WALKING_INCORRECT) {
-                incorrectCount++;
-                Serial.print("INCORRECT STEP #");
-                Serial.print(incorrectCount);
-                Serial.print("  (heel="); Serial.print(heel);
-                Serial.print(" toe="); Serial.print(toe);
-                Serial.println(")");
-                sdManager.logStep(result);
+            // 3. Reset step classifier when leaving WALKING so residual stance
+            //    state doesn't fire a phantom step on the next walking window.
+            if (prevMotion == WALKING && motion != WALKING) {
+                classifier.reset();
+            }
+            prevMotion = motion;
+
+            // 4. Only classify steps and log to SD when actively WALKING.
+            if (motion == WALKING) {
+                StepType step = classifier.processSample(heel, toe, currentMillis);
+
+                if (step == STEP_CORRECT) {
+                    correctCount++;
+                    Serial.print("CORRECT STEP #");
+                    Serial.print(correctCount);
+                    Serial.print("  (heel="); Serial.print(heel);
+                    Serial.print(" toe="); Serial.print(toe);
+                    Serial.println(")");
+                    sdManager.logStep(step);
+                } else if (step == STEP_INCORRECT) {
+                    incorrectCount++;
+                    Serial.print("INCORRECT STEP #");
+                    Serial.print(incorrectCount);
+                    Serial.print("  (heel="); Serial.print(heel);
+                    Serial.print(" toe="); Serial.print(toe);
+                    Serial.println(")");
+                    sdManager.logStep(step);
+                }
             }
         }
     }
