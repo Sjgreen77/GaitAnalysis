@@ -4,8 +4,13 @@
 #include <Arduino.h>
 
 // --- Hardware Pins ---
-const int PIN_ADC_HEEL = A0;
-const int PIN_ADC_TOE  = A1;
+// NOTE: Hardware wiring has heel FSR on A1 and toe FSR on A0, but all
+// training data and the decision tree in MotionClassifier.h were collected
+// with these labels swapped.  Keeping the code consistent with the training
+// data for now — TODO: recollect training data and retrain the tree so
+// "heel" and "toe" match physical reality, then swap these back.
+const int PIN_ADC_HEEL = A0;  // physically reads the toe sensor
+const int PIN_ADC_TOE  = A1;  // physically reads the heel sensor
 const int PIN_SD_CS    = TX; // Verify this matches your wiring
 
 // --- Sampling & Buffers ---
