@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <LSM6DS3.h>
 #include "Config.h"
+
 #include "GaitClassifier.h"
 #include "MotionClassifier.h"
 #include "SDManager.h"
