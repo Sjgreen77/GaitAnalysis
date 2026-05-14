@@ -4,15 +4,15 @@
 #include "Config.h"
 #include <math.h>
 
-// Top-level activity classification — produced once per WINDOW_SIZE samples
-// (default 50 samples = 1 second at 50Hz).
+// top level activity classification, produced once per WINDOW_SIZE samples
+// (default 50 samples,  1 second at 50Hz).
 enum MotionState { STATIONARY, FIDGETING, WALKING, RUNNING };
 
 class MotionClassifier {
 private:
-    // Running sums — updated each sample, reset each window.
-    // Cheaper than keeping full per-sample buffers and gives us all the
-    // features the new (retrained) decision tree needs.
+    // running sums, updated each sample, reset each window
+    // cheaper than keeping full per sample buffers and gives us all the
+    // features the new rertrained decision tree needs
     float sum_ax = 0,    sumSq_ax = 0;
     float sum_ay = 0,    sumSq_ay = 0;
     float sum_az = 0;
@@ -26,67 +26,63 @@ private:
 
     MotionState currentState = STATIONARY;
 
-    // Asymmetric hysteresis: number of consecutive same-classification
-    // windows needed before committing to a state change.
-    //   - ENTER_WINDOWS: how many to move into any non-WALKING state
-    //   - LEAVE_WALKING_WINDOWS: harder to leave WALKING than to enter it,
-    //     so a brief classifier blip won't interrupt step counting.
+    // asymm hysteresis, number of consecutive same-classification
+    // windows needed before committing to a state change
     static const int ENTER_WINDOWS         = 2;
     static const int LEAVE_WALKING_WINDOWS = 3;
     MotionState pendingState  = STATIONARY;
     int         pendingCount  = 0;
 
-    // Decision tree exported from MATLAB Classification Learner (Fine Tree)
-    // after retraining with toe-walking examples added to the WALKING class.
-    // Branches mirror the text-mode node dump one-for-one.
+    // Decision tree exported from matlab Classification Learner (fine dec tree)
+    // branches mirror the text-mode node dump one-for-one.
     MotionState classifyWindow(float std_toe,     float std_ax,   float mean_accMag,
                                 float heelToeRatio, float std_ay,   float std_gx,
                                 float mean_az,     float std_heel, float std_gz,
                                 float mean_heel,   float mean_gyroMag) {
         if (std_toe < 93.5271f) {
-            // Node 2
+            
             if (std_ax < 0.05086f) {
-                return STATIONARY;                                // Node 4
+                return STATIONARY;                               
             }
-            // Node 5
+          
             if (heelToeRatio < 63.9167f) {
-                // Node 8
-                if (mean_az < 0.872302f) return FIDGETING;        // Node 14
-                return WALKING;                                    // Node 15
+     
+                if (mean_az < 0.872302f) return FIDGETING;        
+                return WALKING;                                   
             }
-            // Node 9
+          
             if (std_ax < 0.279341f) {
-                // Node 16
+              
                 if (std_heel < 170.121f) {
-                    // Node 22
-                    if (std_ax < 0.0748567f) return WALKING;      // Node 28
-                    return RUNNING;                                // Node 29
+                
+                    if (std_ax < 0.0748567f) return WALKING;      
+                    return RUNNING;                                
                 }
-                return FIDGETING;                                  // Node 23
+                return FIDGETING;                                 
             }
-            return WALKING;                                        // Node 17
+            return WALKING;                                       
         }
 
-        // Node 3
+        
         if (mean_accMag < 1.73156f) {
-            // Node 6
-            if (std_ay < 0.13274f) return FIDGETING;              // Node 10
-            // Node 11
+           
+            if (std_ay < 0.13274f) return FIDGETING;            
+           
             if (std_gz < 88.6074f) {
-                // Node 18
-                if (mean_heel < 362.3f) return WALKING;           // Node 24
-                return RUNNING;                                    // Node 25
+               
+                if (mean_heel < 362.3f) return WALKING;           
+                return RUNNING;                                    
             }
-            // Node 19
-            if (mean_gyroMag < 181.119f) return WALKING;          // Node 26
-            return RUNNING;                                        // Node 27
+           
+            if (mean_gyroMag < 181.119f) return WALKING;      
+            return RUNNING;                                      
         }
 
-        // Node 7
-        if (std_gx < 63.7776f) return WALKING;                    // Node 12
-        // Node 13
-        if (mean_heel < 212.25f) return RUNNING;                  // Node 20
-        return WALKING;                                            // Node 21
+     
+        if (std_gx < 63.7776f) return WALKING;                  
+       
+        if (mean_heel < 212.25f) return RUNNING;              
+        return WALKING;                                         
     }
 
     const char* stateName(MotionState s) {
@@ -113,7 +109,7 @@ private:
     }
 
 public:
-    // Call every sample (50Hz).  Returns the most recent classified state —
+    // call every sample (50Hz), returns the most recent classified state
     // which only changes once per window (every 50 samples / 1 second).
     MotionState processSample(float ax, float ay, float az,
                               float gx, float gy, float gz,
@@ -161,7 +157,7 @@ public:
             float std_heel = sqrtf(var_heel < 0 ? 0 : var_heel);
             float std_toe  = sqrtf(var_toe  < 0 ? 0 : var_toe);
 
-            // Match the MATLAB formula: mean_heel / (mean_toe + 1)
+            // macth the MATLAB formula, mean_heel / (mean_toe + 1)
             float heelToeRatio = mean_heel / (mean_toe + 1.0f);
 
             MotionState rawState = classifyWindow(
@@ -169,17 +165,7 @@ public:
                 std_ay, std_gx, mean_az, std_heel, std_gz,
                 mean_heel, mean_gyroMag);
 
-            // --- Toe-walking rescue ---
-            // The tree decides toe-walking vs. fidgeting via mean_az alone
-            // (node 14 vs 15), which is fragile to sensor orientation.
-            // Toe-walking has a clear signature the tree doesn't exploit:
-            // strong toe pressure, near-zero heel pressure, real gait-level
-            // acceleration and gyro activity.  If the tree says FIDGETING
-            // but the window looks like toe-walking, override to WALKING.
-            // Symmetric across heel/toe: walking shows significant force on
-            // EITHER sensor, plus rhythmic accel, plus leg swing.  Fidgeting
-            // has at most one of those three (high force while standing still,
-            // or shaky accel with no force, etc.) — never all three.
+            // toe walking fix
             float footForce = mean_heel + mean_toe;
             if (rawState == FIDGETING &&
                 footForce   > 150.0f  &&   // any FSR actually loaded
@@ -188,15 +174,15 @@ public:
                 rawState = WALKING;
             }
 
-            // --- Asymmetric hysteresis ---
-            // Entering any state (including WALKING) requires ENTER_WINDOWS
-            // confirmations.  Leaving WALKING requires LEAVE_WALKING_WINDOWS
-            // — brief classifier blips shouldn't interrupt step counting.
+            // asymm hysyteriss
+            // entering any state (including walking) requires ENTER_WINDOWS
+            // confirmations but leaving walking requires LEAVE_WALKING_WINDOWS
+            // brief classifier blips shouldn't interrupt step counting
             int requiredWindows =
                 (currentState == WALKING) ? LEAVE_WALKING_WINDOWS : ENTER_WINDOWS;
 
             if (rawState == currentState) {
-                // Still in same state, clear any pending change
+                // still in same state, clear any pending change
                 pendingCount = 0;
             } else if (rawState == pendingState) {
                 pendingCount++;
@@ -209,7 +195,7 @@ public:
                     pendingCount = 0;
                 }
             } else {
-                // New candidate state — start counting
+                // new candidate state, start counting
                 pendingState = rawState;
                 pendingCount = 1;
             }

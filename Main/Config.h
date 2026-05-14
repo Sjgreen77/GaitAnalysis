@@ -3,22 +3,17 @@
 
 #include <Arduino.h>
 
-// --- Hardware Pins ---
-// NOTE: Hardware wiring has heel FSR on A1 and toe FSR on A0, but all
-// training data and the decision tree in MotionClassifier.h were collected
-// with these labels swapped.  Keeping the code consistent with the training
-// data for now — TODO: recollect training data and retrain the tree so
-// "heel" and "toe" match physical reality, then swap these back.
+// hardware pins
 const int PIN_ADC_HEEL = A0;  // physically reads the toe sensor
 const int PIN_ADC_TOE  = A1;  // physically reads the heel sensor
-const int PIN_SD_CS    = TX; // Verify this matches your wiring
+const int PIN_SD_CS    = TX;
 
-// --- Sampling & Buffers ---
+// sampling and buffs
 const int SAMPLE_RATE_HZ = 50;
 const unsigned long SAMPLE_INTERVAL_MS = 1000 / SAMPLE_RATE_HZ;
 const int WINDOW_SIZE = 50; // 1 second window
 
-// --- Battery ---
+// battery
 #define VBAT_ENABLE       14
 #define PIN_VBAT          35
 #define VREF              3.6f
@@ -27,13 +22,13 @@ const int WINDOW_SIZE = 50; // 1 second window
 #define VBAT_SCALE        (VREF / 4096.0f * (R_UPPER + R_LOWER) / R_LOWER)
 #define VBAT_MIN          3.0f
 #define VBAT_MAX          4.2f
-const unsigned long BATTERY_INTERVAL_MS = 1000; // Report battery every 1 second
+const unsigned long BATTERY_INTERVAL_MS = 1000; // report battery every 1 second
 
-// --- Thresholds ---
-// Replace these with actual ADC values determined from your testing
+// thresholds
+// replace these with actual ADC values determined from your testing
 const int FORCE_THRESHOLD = 500;
 
-// --- BLE UUIDs ---
+// BLE UUIDs
 #define SERVICE_UUID "12345678-1234-5678-1234-56789abcdef0"
 #define CHAR_UUID    "12345678-1234-5678-1234-56789abcdef1"
 

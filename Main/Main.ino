@@ -7,16 +7,16 @@
 #include "SDManager.h"
 #include "BLEManager.h"
 
-// --- Global Instances ---
+// global instances
 LSM6DS3 imu(I2C_MODE, 0x6A);
 GaitClassifier   classifier;
 MotionClassifier motionClassifier;
 SDManager        sdManager;
 BLEManager       bleManager;
 
-// Track previous motion state so we can reset the step classifier
-// when leaving WALKING (prevents stale stance state from triggering
-// a phantom step when walking resumes).
+// track previous motion state so we can reset the step classifier
+// when leaving walking (prevents an old stance state from triggering
+// a "ghost" step when walking continues).
 MotionState prevMotion = STATIONARY;
 
 unsigned long lastSampleTime = 0;
@@ -24,10 +24,10 @@ unsigned long lastBatteryTime = 0;
 unsigned long correctCount = 0;
 unsigned long incorrectCount = 0;
 
-// Sync state (only used while connected)
+// sync state (only used while connected)
 bool isSyncing = false;
 
-// --- Battery helpers (from battery_read_and_adc_reporting) ---
+// battery helper funcs
 float readBatteryVoltage() {
     const int NUM_SAMPLES = 16;
     uint32_t sum = 0;
@@ -58,11 +58,11 @@ void setup() {
     Serial.begin(115200);
     analogReadResolution(12);
 
-    // Enable battery ADC path
+    // enable battery ADC path
     pinMode(VBAT_ENABLE, OUTPUT);
     digitalWrite(VBAT_ENABLE, LOW);
 
-    // Initialize Modules
+    // init modules
     if (imu.begin() != 0) {
         Serial.println("IMU Error!");
         while(1);
@@ -74,8 +74,8 @@ void setup() {
     Serial.println("System Ready.");
 }
 
-// Called when SYNC starts and each time MATLAB sends NEXT.
-// Writes next 240-byte chunk to characteristic value so MATLAB can read it.
+// called when sync starts and each time MATLAB sends next.
+// Writes next 240-byte chunk to characteristic value so MATLAB can read
 void writeNextSyncChunk() {
     uint8_t chunk[240];
     int bytesRead = sdManager.readChunkRaw(chunk, sizeof(chunk));
@@ -92,9 +92,9 @@ void writeNextSyncChunk() {
         bleManager.writeCharValue(chunk, bytesRead);
     } else {
         Serial.println(" -> sending EOF marker");
-        // Send distinctive EOF marker that can't be confused with data
+        // send EOF marker that can't be confused with data
         bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
-        delay(10);  // Brief delay to ensure marker is written
+        delay(10);  // brief delay to ensure marker is written
         isSyncing = false;
         Serial.println("Transfer Complete.");
     }
@@ -102,10 +102,10 @@ void writeNextSyncChunk() {
 
 void loop() {
     if (bleManager.isConnected()) {
-        // ========== CONNECTED TO MATLAB ==========
-        // Report battery + handle sync requests. No step sampling.
+        // now connected to matlab,
+        // report battery and handle sync requests, no step sampling
 
-        // --- Battery reporting every 1 second (skip during sync) ---
+        // battery reporting every second
         unsigned long now = millis();
         if (!isSyncing && now - lastBatteryTime >= BATTERY_INTERVAL_MS) {
             lastBatteryTime = now;
@@ -118,39 +118,39 @@ void loop() {
             bleManager.sendData(buf, strlen(buf));
         }
 
-        // --- SYNC command: open all session files and stream the first chunk ---
+        // sync command, open all session files and stream the first chunk
         if (globalSyncFlag && !isSyncing) {
             Serial.println("[MAIN] SYNC received, opening all sessions for read...");
             globalSyncFlag = false;
             if (sdManager.openAllSessionsForRead()) {
                 isSyncing = true;
-                delay(100); // Let any in-flight battery notification finish
+                delay(100); // let any "in-flight" battery notification finish
                 Serial.print("[MAIN] Transferring ");
                 Serial.print(sdManager.getTotalSessions());
                 Serial.println(" session(s).");
                 writeNextSyncChunk();
             } else {
                 Serial.println("[MAIN] No session data found on SD card.");
-                // Tell MATLAB there's nothing to receive
+                // Tell matlab there's nothing to receive
                 bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
             }
         }
 
-        // --- NEXT command: MATLAB has read the last chunk, send the next one ---
+        // next command: matlab has read the last chunk, send the next one
         if (globalNextFlag) {
             globalNextFlag = false;
             if (isSyncing) {
                 Serial.println("[MAIN] NEXT received, writing next chunk...");
                 writeNextSyncChunk();
             } else {
-                // Transfer already finished but MATLAB hasn't seen [EOF] yet —
-                // re-send it so MATLAB exits its polling loop.
+                // transfer already finished but MATLAB hasn't seen EOF yet,
+                // resend it so matlab exits its polling loop.
                 Serial.println("[MAIN] NEXT received after EOF — resending [EOF]");
                 bleManager.writeCharValue((const uint8_t*)"[EOF]", 5);
             }
         }
 
-        // --- DONE command: MATLAB confirmed successful save, clear all sessions ---
+        // done command: matlab confirmed successful save, clear all sessions
         if (globalDoneFlag) {
             globalDoneFlag = false;
             isSyncing = false;
@@ -161,15 +161,15 @@ void loop() {
         }
 
     } else {
-        // ========== DISCONNECTED — STANDALONE SAMPLING ==========
-        // Collect step data and log to SD card.
-        isSyncing = false; // Reset if we were mid-sync and got disconnected
+        // disconnected from matlab,
+        // collect step data and log to SD card.
+        isSyncing = false; // reset if we were mid sync and got disconnected
 
         unsigned long currentMillis = millis();
         if (currentMillis - lastSampleTime >= SAMPLE_INTERVAL_MS) {
             lastSampleTime = currentMillis;
 
-            // 1. Read all sensors
+            // read all sensors
             float ax = imu.readFloatAccelX();
             float ay = imu.readFloatAccelY();
             float az = imu.readFloatAccelZ();
@@ -179,19 +179,19 @@ void loop() {
             int heel = analogRead(PIN_ADC_HEEL);
             int toe  = analogRead(PIN_ADC_TOE);
 
-            // 2. Top-level motion state — fed every sample, decision refreshed once/sec
+            // top-level motion state fed every sample, decision refreshed once/sec
             MotionState motion = motionClassifier.processSample(ax, ay, az,
                                                                  gx, gy, gz,
                                                                  heel, toe);
 
-            // 3. Reset step classifier when leaving WALKING so residual stance
-            //    state doesn't fire a phantom step on the next walking window.
+            // reset step classifier when leaving walking so residual stance
+            //    state doesn't fire a "ghost" step on the next walking window
             if (prevMotion == WALKING && motion != WALKING) {
                 classifier.reset();
             }
             prevMotion = motion;
 
-            // 4. Only classify steps and log to SD when actively WALKING.
+            // only classify steps and log to microSD when actively walking
             if (motion == WALKING) {
                 StepType step = classifier.processSample(heel, toe, currentMillis);
 

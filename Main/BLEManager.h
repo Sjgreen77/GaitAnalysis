@@ -4,7 +4,7 @@
 #include "Config.h"
 #include <bluefruit.h>
 
-// Forward declarations for the static BLE callback
+// forward declarations for the static ble callback
 volatile bool globalSyncFlag = false;
 volatile bool globalNextFlag = false;
 volatile bool globalDoneFlag = false;
@@ -28,11 +28,11 @@ public:
 
         Bluefruit.Periph.setConnInterval(6, 12);
 
-        // LED off by default (HIGH = off on XIAO)
+        // led off by default (hi = off on seeed)
         pinMode(LED_BLUE, OUTPUT);
         digitalWrite(LED_BLUE, HIGH);
 
-        // Connection callbacks for LED indicator
+        // connection callbacks for led indicator
         Bluefruit.Periph.setConnectCallback(connect_callback);
         Bluefruit.Periph.setDisconnectCallback(disconnect_callback);
 
@@ -47,7 +47,7 @@ public:
         startAdvertising();
     }
 
-    // For battery reporting (write + notify so MATLAB polling sees it)
+    // for battery reporting (write and notify so matlanb polling sees it)
     void sendData(const char* data, int len) {
         if (Bluefruit.connected()) {
             gaitChar.write(data, len);
@@ -55,7 +55,7 @@ public:
         }
     }
 
-    // Write data to characteristic value (for request-response file transfer)
+    // write data to characteristic value
     void writeCharValue(const uint8_t* data, uint16_t len) {
         gaitChar.write(data, len);
     }
@@ -64,7 +64,7 @@ public:
         return Bluefruit.connected();
     }
 
-    // Static callback wrapper required by Bluefruit library
+    // static callback wrapper required by bluefruit library
     static void write_callback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
         String command = "";
         for (int i = 0; i < len; i++) command += (char)data[i];
@@ -86,7 +86,7 @@ public:
         }
     }
 
-    // Static callbacks for BLE connection events
+    // static callbacks for ble connection events
     static void connect_callback(uint16_t conn_handle) {
         (void)conn_handle;
         digitalWrite(LED_BLUE, LOW);
